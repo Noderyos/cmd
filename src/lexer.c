@@ -49,6 +49,7 @@ Token lexer_next(Lexer *l) {
         token.text_len = 2;
     }
 
+    // Parse code block
     else if(strncmp(&l->content[l->cursor], "```", 3) == 0){
         lexer_chop_char(l);
         lexer_chop_char(l);
@@ -65,6 +66,7 @@ Token lexer_next(Lexer *l) {
         lexer_chop_char(l);
     }
 
+    // Parse inline code
     else if(l->content[l->cursor] == '`'){
         lexer_chop_char(l);
         token.type = TOKEN_INLINE_CODE;
@@ -81,6 +83,11 @@ Token lexer_next(Lexer *l) {
         if(token.text[0] == '\n'){
             token.type = TOKEN_NEWLINE;
             token.text_len = 0;
+        }else if (token.text[0] == '\\'){
+            lexer_chop_char(l);
+            token.type = TOKEN_TEXT;
+            token.text_len = 1;
+            token.text++;
         }else {
             token.type = TOKEN_TEXT;
             token.text_len = 1;
