@@ -19,6 +19,7 @@
 #define TOKEN_PRINT(t) (int)t.text_len, t.text
 
 typedef enum {
+    TOKEN_INVALID,
     TOKEN_NEWLINE,
     TOKEN_TEXT,
     TOKEN_TITLE1,
@@ -28,8 +29,9 @@ typedef enum {
     TOKEN_INLINE_CODE,
     TOKEN_BLOCK_CODE,
     TOKEN_LIST,
-    TOKEN_IMAGE,
-    TOKEN_LINK
+    TOKEN_URL,
+    TOKEN_ALTTEXT,
+    TOKEN_LINKTEXT
 } Token_Type;
 
 typedef struct {

@@ -77,6 +77,40 @@ Token lexer_next(Lexer *l) {
         }
     }
 
+    // Parse alt text
+    else if(strncmp(&l->content[l->cursor], "![", 2) == 0) {
+        lexer_chop_char(l);
+        lexer_chop_char(l);
+        token.type = TOKEN_ALTTEXT;
+        token.text = &l->content[l->cursor];
+        while (lexer_chop_char(l) != ']') {
+            ASSERT(l->content[l->cursor] != '\n', "Found newline in alt text");
+            token.text_len++;
+        }
+    }
+
+    // Parse link text
+    else if(l->content[l->cursor] == '[') {
+        lexer_chop_char(l);
+        token.type = TOKEN_LINKTEXT;
+        token.text = &l->content[l->cursor];
+        while (lexer_chop_char(l) != ']') {
+            ASSERT(l->content[l->cursor] != '\n', "Found newline in link text");
+            token.text_len++;
+        }
+    }
+
+    // Parse URL
+    else if(l->content[l->cursor] == '(' && l->cursor > 0 && l->content[l->cursor-1] == ']') {
+        lexer_chop_char(l);
+        token.type = TOKEN_URL;
+        token.text = &l->content[l->cursor];
+        while (lexer_chop_char(l) != ')') {
+            ASSERT(l->content[l->cursor] != '\n', "Found newline in URL");
+            token.text_len++;
+        }
+    }
+
     // Other
     else {
         token.text = &l->content[l->cursor];
