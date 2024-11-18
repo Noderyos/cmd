@@ -9,12 +9,10 @@
 #define UNUSED(x) (void)(x)
 
 #define ASSERT(cond, msg)           \
-if(!(cond)) {                   \
-fprintf(stderr, "%s", msg); \
-exit(1);                    \
-}
-
-#define TOKEN_PRINT(t) (int)t.text_len, t.text
+    if(!(cond)) {                   \
+        fprintf(stderr, "%s", msg); \
+        exit(1);                    \
+    }
 
 typedef enum {
     TOKEN_INVALID,
@@ -30,15 +28,15 @@ typedef enum {
     TOKEN_URL,
     TOKEN_ALTTEXT,
     TOKEN_LINKTEXT
-} Token_Type;
+} cmd_token_type;
 
 typedef struct {
-    Token_Type type;
+    cmd_token_type type;
     const char *text;
     size_t text_len;
     size_t row;
     size_t col;
-} Token;
+} cmd_token;
 
 typedef struct {
     char *content;
@@ -46,10 +44,10 @@ typedef struct {
     size_t cursor;
     size_t line;
     size_t bol;
-} Lexer;
+} cmd_lexer;
 
-Lexer lexer_init(char *content, size_t content_len);
-Token lexer_next(Lexer *l);
+cmd_lexer lexer_init(char *filename);
+cmd_token lexer_next(cmd_lexer *l);
 
 typedef enum {
     TYPE_TEXT,
@@ -61,36 +59,58 @@ typedef enum {
     TYPE_LINK,
     TYPE_RAW,
     TYPE_INVALID
-} MarkdownDataType;
+} cmd_md_dt;
 
 typedef struct {
-    Token *content;
-    Token *alt;
-} MarkdownData;
+    cmd_token *content;
+    cmd_token *alt;
+} cmd_md_data;
 
-typedef void (*MarkdownHandler)(const MarkdownData *data);
+typedef void (*cmd_md_handler)(const cmd_md_data *data);
 
 typedef struct {
-    const MarkdownDataType type;
-    MarkdownHandler start;
-    MarkdownHandler end;
-} MarkdownFunctionMap;
+    const cmd_md_dt type;
+    cmd_md_handler start;
+    cmd_md_handler end;
+} cmd_md_func_map;
 
-void generate(MarkdownFunctionMap fm[], Lexer *l, Token t, Token prev);
+void cmd_generate(cmd_md_func_map fm[], cmd_lexer *l);
 
 #endif
 
 #ifdef CMD_IMPLEMENTATION
 #undef CMD_IMPLEMENTATION
 
-Lexer lexer_init(char *content, size_t content_len){
-    Lexer l = {0};
-    l.content = content;
-    l.content_len = content_len;
+void cmd_generate_internal(cmd_md_func_map fm[], cmd_lexer *l, cmd_token t, cmd_token prev);
+
+void cmd_generate(cmd_md_func_map fm[], cmd_lexer *l) {
+    cmd_token t = {.type = TOKEN_INVALID};
+    cmd_generate_internal(fm, l, t, t);
+}
+
+
+char *read_file(const char *filename){
+    FILE *f = fopen(filename, "r");
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char *string = malloc(fsize + 1);
+    fread(string, fsize, 1, f);
+    fclose(f);
+    string[fsize] = 0;
+
+    return string;
+}
+
+cmd_lexer lexer_init(char *filename){
+    cmd_lexer l = {0};
+    l.content = read_file(filename);
+    l.content_len = strlen(l.content);
     return l;
 }
 
-char lexer_chop_char(Lexer *l){
+char lexer_chop_char(cmd_lexer *l){
     ASSERT(l->cursor < l->content_len, "Unexpected EOF")
 
     char x = l->content[l->cursor];
@@ -102,8 +122,8 @@ char lexer_chop_char(Lexer *l){
     return x;
 }
 
-Token lexer_next(Lexer *l) {
-    Token token = {
+cmd_token lexer_next(cmd_lexer *l) {
+    cmd_token token = {
         .text = &l->content[l->cursor],
         .row = l->line,
         .col = l->cursor - l->bol,
@@ -215,7 +235,7 @@ Token lexer_next(Lexer *l) {
     return token;
 }
 
-void generate_start(MarkdownFunctionMap functionMap[], MarkdownDataType type, MarkdownData *data) {
+void generate_start(cmd_md_func_map functionMap[], cmd_md_dt type, cmd_md_data *data) {
     for (int i = 0; functionMap[i].type != TYPE_INVALID; i++) {
         if (functionMap[i].type == type) {
             functionMap[i].start(data);
@@ -225,7 +245,7 @@ void generate_start(MarkdownFunctionMap functionMap[], MarkdownDataType type, Ma
     ASSERT(0, "No handler found");
 }
 
-void generate_end(MarkdownFunctionMap functionMap[], MarkdownDataType type, MarkdownData *data) {
+void generate_end(cmd_md_func_map functionMap[], cmd_md_dt type, cmd_md_data *data) {
     for (int i = 0; functionMap[i].type != TYPE_INVALID; i++) {
         if (functionMap[i].type == type) {
             functionMap[i].end(data);
@@ -237,11 +257,11 @@ void generate_end(MarkdownFunctionMap functionMap[], MarkdownDataType type, Mark
 
 int was_in_text = 0;
 
-void generate(MarkdownFunctionMap fm[], Lexer *l, Token t, Token prev) {
+void cmd_generate_internal(cmd_md_func_map fm[], cmd_lexer *l, cmd_token t, cmd_token prev) {
     if(t.type == TOKEN_INVALID) {
         while(l->cursor < l->content_len) {
-            Token next = lexer_next(l);
-            generate(fm, l, next, t);
+            cmd_token next = lexer_next(l);
+            cmd_generate_internal(fm, l, next, t);
             t = next;
         }
         if(was_in_text) generate_end(fm, TYPE_TEXT, NULL);
@@ -252,19 +272,19 @@ void generate(MarkdownFunctionMap fm[], Lexer *l, Token t, Token prev) {
             generate_start(fm, TYPE_TEXT, NULL);
             was_in_text = 1;
         }
-        MarkdownData data = {&t, NULL};
+        cmd_md_data data = {&t, NULL};
         generate_start(fm, TYPE_RAW, &data);
     }
 
     else if(t.type == TOKEN_NEWLINE) {
         if(was_in_text) {
-            Token tok = {.text = "<br>", .text_len = 4};
-            MarkdownData data = {&tok, NULL};
+            cmd_token tok = {.text = "<br>", .text_len = 4};
+            cmd_md_data data = {&tok, NULL};
             generate_start(fm, TYPE_RAW, &data);
         }
         else {
-            Token tok = {.text = "\n", .text_len = 1};
-            MarkdownData data = {&tok, NULL};
+            cmd_token tok = {.text = "\n", .text_len = 1};
+            cmd_md_data data = {&tok, NULL};
             generate_start(fm, TYPE_RAW, &data);
         }
     }
@@ -272,12 +292,12 @@ void generate(MarkdownFunctionMap fm[], Lexer *l, Token t, Token prev) {
     else if(t.type >= TOKEN_TITLE1 && t.type <= TOKEN_TITLE4) {
         if(was_in_text) generate_end(fm, TYPE_TEXT, NULL);
         was_in_text = 1;
-        Token to = t;
-        MarkdownData data = {&to, NULL};
+        cmd_token to = t;
+        cmd_md_data data = {&to, NULL};
         generate_start(fm, TYPE_TITLE, &data);
         prev = t;
         while((t = lexer_next(l)).type != TOKEN_NEWLINE) {
-            generate(fm, l, t, prev);
+            cmd_generate_internal(fm, l, t, prev);
             prev = t;
         }
         generate_end(fm, TYPE_TITLE, &data);
@@ -290,7 +310,7 @@ void generate(MarkdownFunctionMap fm[], Lexer *l, Token t, Token prev) {
         generate_start(fm, TYPE_LIST, NULL);
         prev = t;
         while((t = lexer_next(l)).type != TOKEN_NEWLINE) {
-            generate(fm, l, t, prev);
+            cmd_generate_internal(fm, l, t, prev);
             prev = t;
         }
         was_in_text = 0;
@@ -301,31 +321,31 @@ void generate(MarkdownFunctionMap fm[], Lexer *l, Token t, Token prev) {
         if(was_in_text) generate_end(fm, TYPE_TEXT, NULL);
         was_in_text = 0;
         generate_start(fm, TYPE_BLOCK, NULL);
-        MarkdownData data = {&t, NULL};
+        cmd_md_data data = {&t, NULL};
         generate_start(fm, TYPE_RAW, &data);
         generate_end(fm, TYPE_BLOCK, NULL);
     }
 
     else if(t.type == TOKEN_INLINE_CODE) {
         generate_start(fm, TYPE_INLINE, NULL);
-        MarkdownData data = {&t, NULL};
+        cmd_md_data data = {&t, NULL};
         generate_start(fm, TYPE_RAW, &data);
         generate_end(fm, TYPE_INLINE, NULL);
     }
 
     else if(t.type == TOKEN_ALTTEXT) {
-        Token next = lexer_next(l);
+        cmd_token next = lexer_next(l);
         ASSERT(next.type == TOKEN_URL, "Alt text without URL")
-        MarkdownData data = {
+        cmd_md_data data = {
             &next, &t
         };
         generate_start(fm, TYPE_IMAGE, &data);
     }
 
     else if(t.type == TOKEN_LINKTEXT) {
-        Token next = lexer_next(l);
+        cmd_token next = lexer_next(l);
         ASSERT(next.type == TOKEN_URL, "Alt text without URL")
-        MarkdownData data = {
+        cmd_md_data data = {
             &next, &t
         };
         generate_start(fm, TYPE_LINK, &data);
