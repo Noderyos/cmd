@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "lexer.h"
+#include "generator.h"
 
 char *read_file(const char *filename){
     FILE *f = fopen(filename, "r");
@@ -36,9 +37,68 @@ char *token_pretty(Token *t){
     return "INVALID";
 }
 
-void generate(Lexer *l, Token t, Token prev);
 char *output;
 size_t output_cursor = 0;
+
+void add_to_output(const char* s, int len) {
+    output = realloc(output, output_cursor + len+1);
+    strncpy(output+output_cursor, s, len);
+    output_cursor += len;
+}
+
+void gen_other(const MarkdownData *data) {
+    add_to_output(data->content->text, data->content->text_len);
+}
+
+void gen_text_start(const MarkdownData *data){UNUSED(data);add_to_output("<p>", 3);}
+void gen_text_end(const MarkdownData *data){UNUSED(data);add_to_output("</p>", 4);}
+
+void gen_list_start(const MarkdownData *data){UNUSED(data);add_to_output("<li>", 4);}
+void gen_list_end(const MarkdownData *data){UNUSED(data);add_to_output("</li>", 5);}
+
+void gen_code_start(const MarkdownData *data){UNUSED(data);add_to_output("<pre><code>", 11);}
+void gen_code_end(const MarkdownData *data){UNUSED(data);add_to_output("</code></pre>", 13);}
+
+void gen_span_start(const MarkdownData *data){UNUSED(data);add_to_output("<span class='inline-code'>", 26);}
+void gen_span_end(const MarkdownData *data){UNUSED(data);add_to_output("</span>", 7);}
+
+void gen_image(const MarkdownData *data) {
+    char* to_add = malloc(19 + data->alt->text_len + data->content->text_len + 1);
+    sprintf(to_add, "<img alt='%.*s' src='%.*s'>", (int)data->alt->text_len, data->alt->text, (int)data->content->text_len, data->content->text);
+    add_to_output(to_add, 19 + data->alt->text_len + data->content->text_len);
+    free(to_add);
+}
+
+void gen_link(const MarkdownData *data) {
+    char* to_add = malloc(15 + data->alt->text_len + data->content->text_len + 1);
+    sprintf(to_add, "<a href='%.*s'>%.*s</a>", (int)data->content->text_len, data->content->text, (int)data->alt->text_len, data->alt->text);
+    add_to_output(to_add, 15 + data->alt->text_len + data->content->text_len);
+    free(to_add);
+}
+
+void gen_title_start(const MarkdownData *data) {
+    char buf[5];
+    sprintf(buf, "<h%d>", data->content->type - TOKEN_TITLE1 + 1);
+    add_to_output(buf, 4);
+}
+
+void gen_title_end(const MarkdownData *data) {
+    char buf[6];
+    sprintf(buf, "</h%d>", data->content->type - TOKEN_TITLE1 + 1);
+    add_to_output(buf, 5);
+}
+
+MarkdownFunctionMap fm[] = {
+    {TYPE_TEXT, gen_text_start, gen_text_end},
+    {TYPE_LIST, gen_list_start, gen_list_end},
+    {TYPE_INLINE, gen_span_start, gen_span_end},
+    {TYPE_BLOCK, gen_code_start, gen_code_end},
+    {TYPE_IMAGE, gen_image, NULL},
+    {TYPE_LINK, gen_link, NULL},
+    {TYPE_TITLE, gen_title_start, gen_title_end},
+    {TYPE_RAW, gen_other, gen_other},
+    {TYPE_INVALID, NULL, NULL}
+};
 
 int main(int argc, char *argv[]){
 
@@ -50,131 +110,10 @@ int main(int argc, char *argv[]){
     char *text = read_file(argv[1]);
     Lexer lexer = lexer_init(text, strlen(text));
     Token t = {.type = TOKEN_INVALID};
-    generate(&lexer, t, t);
-    printf("%s", output);
+    generate(fm, &lexer, t, t);
+
+    printf("%.*s", (int)output_cursor, output);
+
     free(text);
     free(output);
-}
-
-int was_in_text = 0;
-
-void add_to_output(const char* s, int len) {
-    output = realloc(output, output_cursor + len);
-    strncpy(output+output_cursor, s, len);
-    output_cursor += len;
-}
-
-void gen_text_start(){add_to_output("<p>", 3);}
-void gen_text_end(){add_to_output("</p>", 4);}
-
-void gen_list_start(){add_to_output("<li>", 4);}
-void gen_list_end(){add_to_output("</li>", 5);}
-
-void gen_code_start(){add_to_output("<code>", 6);}
-void gen_code_end(){add_to_output("</code>", 7);}
-
-void gen_span_start(){add_to_output("<span style='color:red'>", 24);}
-void gen_span_end(){add_to_output("</span>", 7);}
-
-void gen_image(Token alt, Token url) {
-    char* data = malloc(19 + alt.text_len + url.text_len + 1);
-    sprintf(data, "<img alt='%.*s' src='%.*s'>", (int)alt.text_len, alt.text, (int)url.text_len, url.text);
-    add_to_output(data, 19 + alt.text_len + url.text_len);
-    free(data);
-}
-
-void gen_link(Token alt, Token url) {
-    char* data = malloc(15 + alt.text_len + url.text_len + 1);
-    sprintf(data, "<a href='%.*s'>%.*s</a>", (int)url.text_len, url.text, (int)alt.text_len, alt.text);
-    add_to_output(data, 15 + alt.text_len + url.text_len);
-    free(data);
-}
-
-void gen_title_start(int level) {
-    char buf[5];
-    sprintf(buf, "<h%d>", level);
-    add_to_output(buf, 4);
-}
-
-void gen_title_end(int level) {
-    char buf[6];
-    sprintf(buf, "</h%d>", level);
-    add_to_output(buf, 5);
-}
-
-void generate(Lexer *l, Token t, Token prev) {
-    if(t.type == TOKEN_INVALID) {
-        while(l->cursor < l->content_len) {
-            Token next = lexer_next(l);
-            generate(l, next, t);
-            t = next;
-        }
-        output[output_cursor] = 0;
-    }
-
-    else if(t.type == TOKEN_TEXT) {
-        if(!was_in_text) {
-            gen_text_start();
-            was_in_text = 1;
-        }
-        add_to_output(t.text, t.text_len);
-    }
-
-    else if(t.type == TOKEN_NEWLINE) {
-        if(was_in_text) add_to_output("<br>", 4);
-        else add_to_output("\n", 1);
-    }
-
-    else if(t.type >= TOKEN_TITLE1 && t.type <= TOKEN_TITLE4) {
-        if(was_in_text) gen_text_end();
-        was_in_text = 1;
-        int level = t.type - TOKEN_TITLE1 + 1;
-        gen_title_start(level);
-        prev = t;
-        while((t = lexer_next(l)).type != TOKEN_NEWLINE) {
-            generate(l, t, prev);
-            prev = t;
-        }
-        gen_title_end(level);
-        was_in_text = 0;
-    }
-
-    else if(t.type == TOKEN_LIST) {
-        if(was_in_text) gen_text_end();
-        was_in_text = 1;
-        gen_list_start();
-        prev = t;
-        while((t = lexer_next(l)).type != TOKEN_NEWLINE) {
-            generate(l, t, prev);
-            prev = t;
-        }
-        was_in_text = 0;
-        gen_list_end();
-    }
-
-    else if(t.type == TOKEN_BLOCK_CODE) {
-        if(was_in_text) gen_text_end();
-        was_in_text = 0;
-        gen_code_start();
-        add_to_output(t.text, t.text_len);
-        gen_code_end();
-    }
-
-    else if(t.type == TOKEN_INLINE_CODE) {
-        gen_span_start();
-        add_to_output(t.text, t.text_len);
-        gen_span_end();
-    }
-
-    else if(t.type == TOKEN_ALTTEXT) {
-        Token next = lexer_next(l);
-        ASSERT(next.type == TOKEN_URL, "Alt text without URL")
-        gen_image(t, next);
-    }
-
-    else if(t.type == TOKEN_LINKTEXT) {
-        Token next = lexer_next(l);
-        ASSERT(next.type == TOKEN_URL, "Alt text without URL")
-        gen_link(t, next);
-    }
 }
