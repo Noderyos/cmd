@@ -1,8 +1,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "lexer.h"
-#include "generator.h"
+#define CMD_IMPLEMENTATION
+#include "cmd.h"
 
 char *read_file(const char *filename){
     FILE *f = fopen(filename, "r");
@@ -59,7 +59,7 @@ void gen_list_end(const MarkdownData *data){UNUSED(data);add_to_output("</li>", 
 void gen_code_start(const MarkdownData *data){UNUSED(data);add_to_output("<pre><code>", 11);}
 void gen_code_end(const MarkdownData *data){UNUSED(data);add_to_output("</code></pre>", 13);}
 
-void gen_span_start(const MarkdownData *data){UNUSED(data);add_to_output("<span class='inline-code'>", 26);}
+void gen_span_start(const MarkdownData *data){UNUSED(data);add_to_output("<span style='color:red;'>", 25);}
 void gen_span_end(const MarkdownData *data){UNUSED(data);add_to_output("</span>", 7);}
 
 void gen_image(const MarkdownData *data) {
